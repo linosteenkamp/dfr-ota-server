@@ -127,6 +127,21 @@ def test_sync_once_skips_repo_without_release(tmp_path):
     assert res == {"ok": 0, "failed": []}
     assert json.loads((serve / "index.json").read_text()) == []
 
+def test_sync_once_reports_get_index_error(tmp_path):
+    class BoomFetcher:
+        def get_index(self, repo):
+            raise RuntimeError("boom")
+        def download(self, repo, filename):
+            raise AssertionError("download should not be called")
+
+    serve = tmp_path / "serve"
+    res = s.sync_once(BoomFetcher(), ["o/r1"], "http://pi.lan:8091",
+                      serve, tmp_path / "stg", log=lambda *a: None)
+    assert res["failed"] == ["o/r1"]
+    idx_path = serve / "index.json"
+    assert idx_path.exists()
+    assert json.loads(idx_path.read_text()) == []
+
 def test_sync_once_nested_staging_root(tmp_path):
     b = b"\x03" * 45
     good = {"o/r1": {"entries": [_entry(65278, 2, 101, b, "door.ota")],

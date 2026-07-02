@@ -34,3 +34,9 @@ python3 -m pytest tests/ -q
 ## Configuration
 
 See `repos.conf.example` for the format of the repos configuration file.
+
+Note: removing a repo from `repos.conf` does **not** automatically drop its
+already-served image from the index — merged entries carry forward from the
+last-good index. To retire an image, stop the timer, clear/edit the state in
+`/var/lib/dfr-ota` (e.g. remove the stale `index.json` entry and `ota/` file),
+and re-run the sync.
