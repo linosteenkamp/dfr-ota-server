@@ -30,14 +30,14 @@ def test_rewrite_entry_url():
              "fileVersion": 1, "fileSize": 10, "sha512": "ab",
              "url": "https://github.com/o/r/releases/download/v1.0.1/firmware-1.0.1.ota"}
     out = s.rewrite_entry_url(entry, "http://pi.lan:8091")
-    assert out["url"] == "http://pi.lan:8091/ota/firmware-1.0.1.ota"
+    assert out["url"] == "http://pi.lan:8091/ota/fefe-0002-firmware-1.0.1.ota"
     assert out["sha512"] == "ab" and out["manufacturerCode"] == 65278
     assert entry["url"].startswith("https://")  # original not mutated
 
 
 def test_rewrite_entry_url_strips_trailing_slash_on_base():
-    entry = {"url": "https://x/y/fw.ota"}
-    assert s.rewrite_entry_url(entry, "http://pi.lan:8091/")["url"] == "http://pi.lan:8091/ota/fw.ota"
+    entry = {"url": "https://x/y/fw.ota", "manufacturerCode": 65278, "imageType": 2}
+    assert s.rewrite_entry_url(entry, "http://pi.lan:8091/")["url"] == "http://pi.lan:8091/ota/fefe-0002-fw.ota"
 
 
 def test_verify_blob_ok():
@@ -100,8 +100,8 @@ def test_sync_once_publishes_valid_index(tmp_path):
                       serve, tmp_path / "stg", log=lambda *a: None)
     assert res == {"ok": 1, "failed": []}
     idx = json.loads((serve / "index.json").read_text())
-    assert idx[0]["url"] == "http://pi.lan:8091/ota/door.ota"
-    assert (serve / "ota" / "door.ota").read_bytes() == b
+    assert idx[0]["url"] == "http://pi.lan:8091/ota/fefe-0002-door.ota"
+    assert (serve / "ota" / "fefe-0002-door.ota").read_bytes() == b
 
 def test_sync_once_keeps_last_good_when_repo_fails(tmp_path):
     b = b"\x02" * 40
@@ -118,7 +118,7 @@ def test_sync_once_keeps_last_good_when_repo_fails(tmp_path):
     assert res["failed"] == ["o/r1"]
     idx = json.loads((serve / "index.json").read_text())
     assert idx[0]["fileVersion"] == 101                 # last-good retained
-    assert (serve / "ota" / "door.ota").read_bytes() == b
+    assert (serve / "ota" / "fefe-0002-door.ota").read_bytes() == b
 
 def test_sync_once_skips_repo_without_release(tmp_path):
     serve = tmp_path / "serve"
@@ -154,7 +154,7 @@ def test_sync_once_nested_staging_root(tmp_path):
     assert res == {"ok": 1, "failed": []}
     idx = json.loads((serve / "index.json").read_text())
     assert idx[0]["fileVersion"] == 101
-    assert (serve / "ota" / "door.ota").read_bytes() == b
+    assert (serve / "ota" / "fefe-0002-door.ota").read_bytes() == b
     # Second run: corrupted blob (sha mismatch) -> repo fails, last-good retained
     bad = {"o/r1": {"entries": [_entry(65278, 2, 102, b, "door.ota")],
                     "blobs": {"door.ota": b"\xFF" * 45}}}
@@ -163,6 +163,39 @@ def test_sync_once_nested_staging_root(tmp_path):
     assert res["failed"] == ["o/r1"]
     idx = json.loads((serve / "index.json").read_text())
     assert idx[0]["fileVersion"] == 101                 # last-good retained
-    assert (serve / "ota" / "door.ota").read_bytes() == b
+    assert (serve / "ota" / "fefe-0002-door.ota").read_bytes() == b
     # Verify no leftover .old directory in serve_dir's parent
     assert not (tmp_path / "serve.old").exists()
+
+def test_sync_once_namespaces_colliding_filenames(tmp_path):
+    # Two different repos both release an asset named "firmware-1.0.0.ota", but for
+    # different device types (imageType). The served filenames must be namespaced by
+    # (manufacturerCode, imageType) so neither blob overwrites the other.
+    b_door = b"\x11" * 30                 # repo A: door sensor (imageType 2)
+    b_soil = b"\x22" * 30                 # repo B: soil sensor (imageType 1)
+    data = {
+        "o/door-sensor": {"entries": [_entry(65278, 2, 100, b_door, "firmware-1.0.0.ota")],
+                           "blobs": {"firmware-1.0.0.ota": b_door}},
+        "o/soil-sensor": {"entries": [_entry(65278, 1, 100, b_soil, "firmware-1.0.0.ota")],
+                           "blobs": {"firmware-1.0.0.ota": b_soil}},
+    }
+    serve = tmp_path / "serve"
+    res = s.sync_once(FakeFetcher(data), ["o/door-sensor", "o/soil-sensor"],
+                      "http://pi.lan:8091", serve, tmp_path / "stg",
+                      log=lambda *a: None)
+    assert res["ok"] == 2
+    assert res["failed"] == []
+
+    ota_dir = serve / "ota"
+    door_file = ota_dir / "fefe-0002-firmware-1.0.0.ota"
+    soil_file = ota_dir / "fefe-0001-firmware-1.0.0.ota"
+    assert door_file.exists() and soil_file.exists()
+    assert {f.name for f in ota_dir.iterdir() if f.is_file()} == {door_file.name, soil_file.name}
+    assert door_file.read_bytes() == b_door
+    assert soil_file.read_bytes() == b_soil
+
+    idx = json.loads((serve / "index.json").read_text())
+    urls = {e["imageType"]: e["url"] for e in idx}
+    assert urls[2] == "http://pi.lan:8091/ota/fefe-0002-firmware-1.0.0.ota"
+    assert urls[1] == "http://pi.lan:8091/ota/fefe-0001-firmware-1.0.0.ota"
+    assert len(set(urls.values())) == 2         # distinct urls, no collision

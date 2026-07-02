@@ -39,10 +39,16 @@ def parse_repos_conf(text: str) -> list[str]:
     return repos
 
 
+def _served_name(entry: dict) -> str:
+    """Local serve filename, namespaced by (manufacturerCode, imageType) so assets
+    from different repos that share a name (e.g. firmware-1.0.0.ota) don't collide."""
+    orig = entry["url"].rstrip("/").rsplit("/", 1)[-1]
+    return f'{entry["manufacturerCode"]:04x}-{entry["imageType"]:04x}-{orig}'
+
+
 def rewrite_entry_url(entry: dict, base_url: str) -> dict:
-    """Return a copy of entry with url repointed to the LAN server."""
-    fname = entry["url"].rstrip("/").rsplit("/", 1)[-1]
-    return {**entry, "url": f"{base_url.rstrip('/')}/ota/{fname}"}
+    """Return a copy of entry with url repointed to the LAN server (namespaced name)."""
+    return {**entry, "url": f"{base_url.rstrip('/')}/ota/{_served_name(entry)}"}
 
 
 def _key(entry: dict) -> tuple:
@@ -130,15 +136,15 @@ def sync_once(fetcher, repos, base_url, serve_dir, staging_root, log=print) -> d
         repo_blobs: dict = {}
         ok = True
         for entry in entries:
-            fname = entry["url"].rstrip("/").rsplit("/", 1)[-1]
+            asset_name = entry["url"].rstrip("/").rsplit("/", 1)[-1]
             try:
-                blob = fetcher.download(repo, fname)
+                blob = fetcher.download(repo, asset_name)
                 verify_blob(blob, entry["sha512"], entry["fileSize"])
             except Exception as ex:            # noqa: BLE001
-                log(f"{repo}: {fname} failed: {ex}")
+                log(f"{repo}: {asset_name} failed: {ex}")
                 ok = False
                 break
-            repo_blobs[fname] = blob
+            repo_blobs[_served_name(entry)] = blob
             repo_updates.append(rewrite_entry_url(entry, base_url))
         if ok:
             updates.extend(repo_updates)
