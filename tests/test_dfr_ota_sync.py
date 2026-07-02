@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 import pytest
+import hashlib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import dfr_ota_sync as s
@@ -36,3 +37,19 @@ def test_rewrite_entry_url():
 def test_rewrite_entry_url_strips_trailing_slash_on_base():
     entry = {"url": "https://x/y/fw.ota"}
     assert s.rewrite_entry_url(entry, "http://pi.lan:8091/")["url"] == "http://pi.lan:8091/ota/fw.ota"
+
+
+def test_verify_blob_ok():
+    blob = b"hello world"
+    s.verify_blob(blob, hashlib.sha512(blob).hexdigest(), len(blob))  # no raise
+
+
+def test_verify_blob_size_mismatch():
+    blob = b"abc"
+    with pytest.raises(s.VerifyError):
+        s.verify_blob(blob, hashlib.sha512(blob).hexdigest(), 999)
+
+
+def test_verify_blob_sha_mismatch():
+    with pytest.raises(s.VerifyError):
+        s.verify_blob(b"abc", "00" * 64, 3)

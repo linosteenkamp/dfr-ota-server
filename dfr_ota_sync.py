@@ -2,6 +2,20 @@
 """dfr-ota-server: aggregate per-repo Zigbee OTA releases into one LAN-served z2m index."""
 from __future__ import annotations
 
+import hashlib
+
+
+class VerifyError(Exception):
+    pass
+
+
+def verify_blob(blob: bytes, expected_sha512: str, expected_size: int) -> None:
+    if len(blob) != expected_size:
+        raise VerifyError(f"size {len(blob)} != expected {expected_size}")
+    got = hashlib.sha512(blob).hexdigest()
+    if got.lower() != expected_sha512.lower():
+        raise VerifyError("sha512 mismatch")
+
 
 def parse_repos_conf(text: str) -> list[str]:
     """Parse repos.conf into an ordered, de-duplicated list of 'owner/repo'."""
