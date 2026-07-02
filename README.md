@@ -8,13 +8,13 @@ timer fetches each configured repo's latest GitHub Release `.ota` + `ota/index.j
 1. `git clone` this repo; `sudo ./install.sh`.
 2. Put a fine-grained GitHub PAT (Contents: read on the DFR-* repos) in `/etc/dfr-ota/token`.
 3. Edit `/etc/dfr-ota/repos.conf` (one `owner/repo` per line) and `/etc/dfr-ota/env`
-   (`BASE_URL=http://localhost:8091` — z2m is co-located, loopback only).
-4. `sudo systemctl start dfr-ota-sync.service` then `curl http://localhost:8091/index.json`.
+   (`BASE_URL=http://127.0.0.1:8091` — z2m is co-located, loopback only).
+4. `sudo systemctl start dfr-ota-sync.service` then `curl http://127.0.0.1:8091/index.json`.
 
 ## Zigbee2MQTT
 ```yaml
 ota:
-  zigbee_ota_override_index_location: http://localhost:8091/index.json
+  zigbee_ota_override_index_location: http://127.0.0.1:8091/index.json
   disable_automatic_update_check: true
 ```
 Trigger updates per device in the z2m UI. Runs `--base-url` from `/etc/dfr-ota/env`.

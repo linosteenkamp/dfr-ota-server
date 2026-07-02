@@ -14,7 +14,9 @@ install -d -m 750 -g dfr-ota /etc/dfr-ota
 # /etc/dfr-ota/env holds BASE_URL, BIND_ADDR, SERVE_PORT (edit after install)
 [ -f /etc/dfr-ota/env ] || cat > /etc/dfr-ota/env <<'EOF'
 # z2m is co-located -> serve on loopback only; z2m fetches via localhost.
-BASE_URL=http://localhost:8091
+# Use 127.0.0.1 (not "localhost"): the server binds IPv4 only, but "localhost"
+# can resolve to IPv6 ::1 first (Node/z2m + curl), giving connection-refused.
+BASE_URL=http://127.0.0.1:8091
 BIND_ADDR=127.0.0.1
 SERVE_PORT=8091
 EOF
