@@ -213,7 +213,11 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Aggregate DFR-* OTA releases for z2m.")
     ap.add_argument("--repos", default="/etc/dfr-ota/repos.conf")
     ap.add_argument("--token-file", default="/etc/dfr-ota/token")
-    ap.add_argument("--serve-dir", default="/var/lib/dfr-ota")
+    # serve-dir MUST be a subdirectory of a dir the service user owns: the atomic
+    # swap renames serve-dir itself, which needs write on its PARENT. Serving
+    # /var/lib/dfr-ota/pub (parent /var/lib/dfr-ota is owned by dfr-ota) works;
+    # serving /var/lib/dfr-ota directly would need write on /var/lib (root-only).
+    ap.add_argument("--serve-dir", default="/var/lib/dfr-ota/pub")
     ap.add_argument("--staging-root", default="/var/lib/dfr-ota/.staging")
     ap.add_argument("--base-url", required=True,
                     help="LAN base, e.g. http://192.168.1.10:8091")

@@ -5,7 +5,7 @@ After=network-online.target
 [Service]
 User=dfr-ota
 EnvironmentFile=/etc/dfr-ota/env
-ExecStart=/usr/bin/python3 -m http.server ${SERVE_PORT} --bind ${BIND_ADDR} --directory /var/lib/dfr-ota
+ExecStart=/usr/bin/python3 -m http.server ${SERVE_PORT} --bind ${BIND_ADDR} --directory /var/lib/dfr-ota/pub
 Restart=always
 
 [Install]
