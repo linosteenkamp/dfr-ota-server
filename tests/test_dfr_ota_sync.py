@@ -53,3 +53,22 @@ def test_verify_blob_size_mismatch():
 def test_verify_blob_sha_mismatch():
     with pytest.raises(s.VerifyError):
         s.verify_blob(b"abc", "00" * 64, 3)
+
+
+def _e(mfg, itype, ver, url="https://x/y/f.ota"):
+    return {"manufacturerCode": mfg, "imageType": itype, "fileVersion": ver, "url": url}
+
+
+def test_merge_updates_overwrite_by_key():
+    prev = [_e(65278, 1, 100), _e(65278, 2, 100)]
+    upd = [_e(65278, 2, 101)]                       # newer door-sensor image
+    out = s.merge_indexes(prev, upd)
+    by = {(e["manufacturerCode"], e["imageType"]): e for e in out}
+    assert by[(65278, 1)]["fileVersion"] == 100     # untouched repo retained
+    assert by[(65278, 2)]["fileVersion"] == 101     # overwritten
+    assert len(out) == 2
+
+
+def test_merge_adds_new_device():
+    out = s.merge_indexes([_e(65278, 1, 100)], [_e(65278, 9, 1)])
+    assert len(out) == 2

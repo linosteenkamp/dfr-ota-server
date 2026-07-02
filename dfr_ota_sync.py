@@ -35,3 +35,15 @@ def rewrite_entry_url(entry: dict, base_url: str) -> dict:
     """Return a copy of entry with url repointed to the LAN server."""
     fname = entry["url"].rstrip("/").rsplit("/", 1)[-1]
     return {**entry, "url": f"{base_url.rstrip('/')}/ota/{fname}"}
+
+
+def _key(entry: dict) -> tuple:
+    return (entry["manufacturerCode"], entry["imageType"])
+
+
+def merge_indexes(previous: list[dict], updates: list[dict]) -> list[dict]:
+    """Merge by (manufacturerCode, imageType); updates overwrite, others retained."""
+    merged = {_key(e): e for e in previous}
+    for e in updates:
+        merged[_key(e)] = e
+    return list(merged.values())
