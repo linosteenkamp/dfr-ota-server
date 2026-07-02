@@ -1,4 +1,5 @@
 import sys
+import json
 from pathlib import Path
 import pytest
 import hashlib
@@ -72,3 +73,56 @@ def test_merge_updates_overwrite_by_key():
 def test_merge_adds_new_device():
     out = s.merge_indexes([_e(65278, 1, 100)], [_e(65278, 9, 1)])
     assert len(out) == 2
+
+
+def _entry(mfg, itype, ver, blob, fname):
+    return {"modelId": f"m{itype}", "manufacturerCode": mfg, "imageType": itype,
+            "fileVersion": ver, "fileSize": len(blob),
+            "sha512": hashlib.sha512(blob).hexdigest(),
+            "url": f"https://github.com/o/r/releases/download/v/{fname}"}
+
+class FakeFetcher:
+    def __init__(self, data):
+        self.data = data  # {repo: {"entries":[...], "blobs":{fname: bytes}}}
+    def get_index(self, repo):
+        if repo not in self.data:
+            raise s.SkipRepo(repo)
+        return self.data[repo]["entries"]
+    def download(self, repo, filename):
+        return self.data[repo]["blobs"][filename]
+
+def test_sync_once_publishes_valid_index(tmp_path):
+    b = b"\x01" * 50
+    data = {"o/r1": {"entries": [_entry(65278, 2, 101, b, "door.ota")],
+                      "blobs": {"door.ota": b}}}
+    serve = tmp_path / "serve"
+    res = s.sync_once(FakeFetcher(data), ["o/r1"], "http://pi.lan:8091",
+                      serve, tmp_path / "stg", log=lambda *a: None)
+    assert res == {"ok": 1, "failed": []}
+    idx = json.loads((serve / "index.json").read_text())
+    assert idx[0]["url"] == "http://pi.lan:8091/ota/door.ota"
+    assert (serve / "ota" / "door.ota").read_bytes() == b
+
+def test_sync_once_keeps_last_good_when_repo_fails(tmp_path):
+    b = b"\x02" * 40
+    good = {"o/r1": {"entries": [_entry(65278, 2, 101, b, "door.ota")],
+                     "blobs": {"door.ota": b}}}
+    serve = tmp_path / "serve"
+    s.sync_once(FakeFetcher(good), ["o/r1"], "http://pi.lan:8091",
+                serve, tmp_path / "stg", log=lambda *a: None)
+    # Next run: same repo now returns a corrupted blob (sha mismatch) -> repo fails
+    bad = {"o/r1": {"entries": [_entry(65278, 2, 102, b, "door.ota")],
+                    "blobs": {"door.ota": b"\xFF" * 40}}}
+    res = s.sync_once(FakeFetcher(bad), ["o/r1"], "http://pi.lan:8091",
+                      serve, tmp_path / "stg", log=lambda *a: None)
+    assert res["failed"] == ["o/r1"]
+    idx = json.loads((serve / "index.json").read_text())
+    assert idx[0]["fileVersion"] == 101                 # last-good retained
+    assert (serve / "ota" / "door.ota").read_bytes() == b
+
+def test_sync_once_skips_repo_without_release(tmp_path):
+    serve = tmp_path / "serve"
+    res = s.sync_once(FakeFetcher({}), ["o/none"], "http://pi.lan:8091",
+                      serve, tmp_path / "stg", log=lambda *a: None)
+    assert res == {"ok": 0, "failed": []}
+    assert json.loads((serve / "index.json").read_text()) == []
