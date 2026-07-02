@@ -126,3 +126,28 @@ def test_sync_once_skips_repo_without_release(tmp_path):
                       serve, tmp_path / "stg", log=lambda *a: None)
     assert res == {"ok": 0, "failed": []}
     assert json.loads((serve / "index.json").read_text()) == []
+
+def test_sync_once_nested_staging_root(tmp_path):
+    b = b"\x03" * 45
+    good = {"o/r1": {"entries": [_entry(65278, 2, 101, b, "door.ota")],
+                     "blobs": {"door.ota": b}}}
+    serve = tmp_path / "serve"
+    staging_root = serve / ".staging"  # nested INSIDE serve_dir
+    # First run: good blob
+    res = s.sync_once(FakeFetcher(good), ["o/r1"], "http://pi.lan:8091",
+                      serve, staging_root, log=lambda *a: None)
+    assert res == {"ok": 1, "failed": []}
+    idx = json.loads((serve / "index.json").read_text())
+    assert idx[0]["fileVersion"] == 101
+    assert (serve / "ota" / "door.ota").read_bytes() == b
+    # Second run: corrupted blob (sha mismatch) -> repo fails, last-good retained
+    bad = {"o/r1": {"entries": [_entry(65278, 2, 102, b, "door.ota")],
+                    "blobs": {"door.ota": b"\xFF" * 45}}}
+    res = s.sync_once(FakeFetcher(bad), ["o/r1"], "http://pi.lan:8091",
+                      serve, staging_root, log=lambda *a: None)
+    assert res["failed"] == ["o/r1"]
+    idx = json.loads((serve / "index.json").read_text())
+    assert idx[0]["fileVersion"] == 101                 # last-good retained
+    assert (serve / "ota" / "door.ota").read_bytes() == b
+    # Verify no leftover .old directory in serve_dir's parent
+    assert not (tmp_path / "serve.old").exists()
