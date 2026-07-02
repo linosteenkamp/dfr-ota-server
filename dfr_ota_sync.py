@@ -2,11 +2,14 @@
 """dfr-ota-server: aggregate per-repo Zigbee OTA releases into one LAN-served z2m index."""
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
 import shutil
 import tempfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 
@@ -69,8 +72,15 @@ def _atomic_replace_dir(new_dir: Path, target: Path) -> None:
     backup = target.with_name(target.name + ".old")
     if backup.exists():
         shutil.rmtree(backup)
+    # new_dir may live inside target (e.g. staging_root nested under serve_dir);
+    # renaming target -> backup silently moves new_dir along with it, so track
+    # its new location before doing the final swap.
+    target_r = target.resolve()
+    nested = target.exists() and target_r in new_dir.resolve().parents
     if target.exists():
         os.rename(target, backup)
+        if nested:
+            new_dir = backup / new_dir.resolve().relative_to(target_r)
     os.rename(new_dir, target)
     if backup.exists():
         shutil.rmtree(backup)
@@ -140,3 +150,82 @@ def sync_once(fetcher, repos, base_url, serve_dir, staging_root, log=print) -> d
     merged = merge_indexes(previous, updates)
     _publish(serve_dir, staging_root, merged, new_blobs)
     return {"ok": len(merged), "failed": failed}
+
+
+GITHUB_API = "https://api.github.com"
+
+
+class _NoAuthRedirect(urllib.request.HTTPRedirectHandler):
+    """Strip Authorization on redirect (GitHub asset -> S3 rejects the header)."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None:
+            new.headers.pop("Authorization", None)
+            new.unredirected_hdrs.pop("Authorization", None)
+        return new
+
+
+class GitHubFetcher:
+    def __init__(self, token: str):
+        self._token = token
+        self._opener = urllib.request.build_opener(_NoAuthRedirect())
+
+    def _get(self, path: str, accept: str = "application/vnd.github+json") -> bytes:
+        req = urllib.request.Request(
+            GITHUB_API + path,
+            headers={
+                "Authorization": f"Bearer {self._token}",
+                "Accept": accept,
+                "X-GitHub-Api-Version": "2022-11-28",
+                "User-Agent": "dfr-ota-sync",
+            },
+        )
+        with self._opener.open(req, timeout=30) as resp:
+            return resp.read()
+
+    def get_index(self, repo: str) -> list[dict]:
+        try:
+            self._get(f"/repos/{repo}/releases/latest")
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                raise SkipRepo(repo)
+            raise
+        try:
+            raw = self._get(f"/repos/{repo}/contents/ota/index.json",
+                            accept="application/vnd.github.raw")
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                raise SkipRepo(repo)
+            raise
+        return json.loads(raw)
+
+    def download(self, repo: str, filename: str) -> bytes:
+        rel = json.loads(self._get(f"/repos/{repo}/releases/latest"))
+        asset_id = next((a["id"] for a in rel.get("assets", [])
+                         if a["name"] == filename), None)
+        if asset_id is None:
+            raise FileNotFoundError(f"{repo}: asset {filename} not in latest release")
+        return self._get(f"/repos/{repo}/releases/assets/{asset_id}",
+                         accept="application/octet-stream")
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description="Aggregate DFR-* OTA releases for z2m.")
+    ap.add_argument("--repos", default="/etc/dfr-ota/repos.conf")
+    ap.add_argument("--token-file", default="/etc/dfr-ota/token")
+    ap.add_argument("--serve-dir", default="/var/lib/dfr-ota")
+    ap.add_argument("--staging-root", default="/var/lib/dfr-ota/.staging")
+    ap.add_argument("--base-url", required=True,
+                    help="LAN base, e.g. http://192.168.1.10:8091")
+    a = ap.parse_args(argv)
+
+    repos = parse_repos_conf(Path(a.repos).read_text())
+    token = Path(a.token_file).read_text().strip()
+    res = sync_once(GitHubFetcher(token), repos, a.base_url,
+                    a.serve_dir, a.staging_root)
+    print(f"served {res['ok']} image(s); failed repos: {res['failed'] or 'none'}")
+    return 1 if res["failed"] else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

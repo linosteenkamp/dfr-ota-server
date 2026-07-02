@@ -1,6 +1,23 @@
 # dfr-ota-server
 
-A pull-based Zigbee OTA aggregator for the DFR-DoorSensor project. This Python 3 application aggregates OTA releases from multiple GitHub repositories and serves them via HTTP on a local network for use by Zigbee2MQTT.
+Pull-based Zigbee OTA aggregator for a private DFR-* device family. A systemd
+timer fetches each configured repo's latest GitHub Release `.ota` + `ota/index.json`
+(read-only token), verifies sha512, and serves one merged z2m override index on the LAN.
+
+## Install (on the z2m Pi)
+1. `git clone` this repo; `sudo ./install.sh`.
+2. Put a fine-grained GitHub PAT (Contents: read on the DFR-* repos) in `/etc/dfr-ota/token`.
+3. Edit `/etc/dfr-ota/repos.conf` (one `owner/repo` per line) and `/etc/dfr-ota/env`
+   (`BASE_URL=http://localhost:8091` — z2m is co-located, loopback only).
+4. `sudo systemctl start dfr-ota-sync.service` then `curl http://localhost:8091/index.json`.
+
+## Zigbee2MQTT
+```yaml
+ota:
+  zigbee_ota_override_index_location: http://localhost:8091/index.json
+  disable_automatic_update_check: true
+```
+Trigger updates per device in the z2m UI. Runs `--base-url` from `/etc/dfr-ota/env`.
 
 ## Development
 

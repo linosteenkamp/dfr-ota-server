@@ -1,0 +1,11 @@
+[Unit]
+Description=DFR OTA index sync (pull GitHub Releases -> LAN index)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=dfr-ota
+# BASE_URL is set at install time (Pi LAN ip:port)
+EnvironmentFile=/etc/dfr-ota/env
+ExecStart=/usr/bin/python3 /opt/dfr-ota-server/dfr_ota_sync.py --base-url ${BASE_URL}
