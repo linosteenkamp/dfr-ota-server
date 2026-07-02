@@ -15,3 +15,9 @@ def parse_repos_conf(text: str) -> list[str]:
         if s not in repos:
             repos.append(s)
     return repos
+
+
+def rewrite_entry_url(entry: dict, base_url: str) -> dict:
+    """Return a copy of entry with url repointed to the LAN server."""
+    fname = entry["url"].rstrip("/").rsplit("/", 1)[-1]
+    return {**entry, "url": f"{base_url.rstrip('/')}/ota/{fname}"}
