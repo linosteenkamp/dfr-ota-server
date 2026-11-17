@@ -291,3 +291,9 @@ python3 -m pytest tests/ -q     # pure logic: parse/rewrite/verify/merge/sync_on
 ```
 Runtime is stdlib-only; `pytest` is a dev/CI dependency only. CI runs the suite on push
 (`.github/workflows/ci.yml`).
+
+## License
+
+This work is under the PolyForm Noncommercial License 1.0.0. You can
+use, change and share it for noncommercial purposes. Commercial use is
+not permitted. Refer to [LICENSE.md](LICENSE.md).
